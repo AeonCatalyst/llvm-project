@@ -1,0 +1,65 @@
+name: Build LLVM (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  LLVM_VERSION: llvmorg-19.1.0   # pin to a tag; change as needed
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build-llvm:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout LLVM
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          ref: ${{ env.LLVM_VERSION }}
+          path: llvm-project
+
+      - name: Set up Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        working-directory: llvm-project
+        run: >
+          cmake -S llvm -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DLLVM_ENABLE_PROJECTS="clang;lld"
+          -DLLVM_TARGETS_TO_BUILD="X86"
+          -DLLVM_ENABLE_ASSERTIONS=OFF
+          -DLLVM_USE_CRT_RELEASE=MT
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DLLVM_ENABLE_ZLIB=OFF
+          -DLLVM_ENABLE_ZSTD=OFF
+          -DLLVM_INCLUDE_TESTS=OFF
+          -DLLVM_INCLUDE_EXAMPLES=OFF
+          -DLLVM_INCLUDE_BENCHMARKS=OFF
+
+      - name: Build
+        working-directory: llvm-project
+        run: cmake --build build --config Release -- -j2
+
+      - name: Package
+        working-directory: llvm-project
+        run: |
+          cmake --install build --prefix install
+          7z a llvm-windows-x64.zip .\install\*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-windows-x64
+          path: llvm-project/llvm-windows-x64.zip
