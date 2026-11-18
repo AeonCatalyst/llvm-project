@@ -1,0 +1,53 @@
+name: Build Custom LLVM Release
+
+on:
+  push:
+    tags:
+      - 'llvmorg-*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout LLVM
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure & Build
+        shell: pwsh
+        run: |
+          cmake -G Ninja -S llvm -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="$PWD/dist" `
+            -DCMAKE_C_COMPILER=clang-cl `
+            -DCMAKE_CXX_COMPILER=clang-cl `
+            -DCMAKE_LINKER=lld-link `
+            -DLLVM_USE_LINKER=lld `
+            -DCMAKE_C_STANDARD=23 `
+            -DCMAKE_CXX_STANDARD=23 `
+            -DLLVM_TARGETS_TO_BUILD="X86" `
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld" `
+            -DLLVM_ENABLE_RUNTIMES="compiler-rt" `
+            -DLLVM_INCLUDE_TESTS=OFF `
+            -DLLVM_INCLUDE_EXAMPLES=OFF `
+            -DLLVM_INCLUDE_BENCHMARKS=OFF `
+            -DLLVM_PARALLEL_LINK_JOBS=2
+          cmake --build build --target install
+
+      - name: Package Archive
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          7z a -t7z -mx=5 "llvm-$tag-windows-x64.7z" ./dist/*
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" llvm-*.7z --generate-notes
